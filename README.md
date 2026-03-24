@@ -10,6 +10,17 @@ A modern, easy-to-use tool to decimate high-poly 3D models into low-poly version
 - **Game-Ready Outputs**: Standardized for Tabletop Simulator and TaleSpire.
 - **Bundled Engine Support**: Can be built as a standalone executable.
 
+## Download & Run (Standalone)
+
+For the easiest experience, you can download the pre-built standalone version which **includes** the Blender engine:
+
+1.  Go to the [Releases](https://github.com/llyrric/3dmodeldecimatorconverter/releases) page.
+2.  Download the latest `3D_Decimator_vX.X.zip` file.
+3.  Extract the ZIP file to a folder of your choice.
+4.  Run `3D_Decimator_and_Baker.exe` inside the extracted folder.
+
+*No Blender installation or Python setup is required for this version.*
+
 ## How to Run (Local Python)
 
 1.  **Install Requirements**:
