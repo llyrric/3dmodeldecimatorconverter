@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.env
+
+# Build and Dist
+build/
+dist/
+*.spec
+
+# Bundled Dependencies (Should be downloaded separately)
+blender/
+
+# 3D Model Artifacts
+*.obj
+*.fbx
+*.glb
+*.gltf
+*.png
+*.jpg
+*.mtl
+
+# OS
+.DS_Store
+Thumbs.db

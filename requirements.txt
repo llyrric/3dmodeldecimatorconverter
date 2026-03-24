@@ -1,0 +1,3 @@
+PySide6>=6.0.0
+# Blender is required to be installed on the system.
+# No other pip dependencies are strictly required since we use subprocess to call Blender.

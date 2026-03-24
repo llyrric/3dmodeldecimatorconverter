@@ -1,0 +1,170 @@
+
+
+
+Building an application that handles **mesh decimation** (reducing polygons) *and* **texture baking** (projecting high-poly details like normals and materials onto the low-poly mesh) is a fantastic project. 
+
+Standard Python libraries like `trimesh` or `open3d` are great for decimation, but they completely lack the rendering engines required to bake complex materials and normals from one mesh to another.
+
+To achieve professional-level results, the best approach is to build your Python app around the **Blender Python API (`bpy`)**. Blender has a built-in rendering engine (Cycles) that excels at "Selected to Active" baking. 
+
+Here is a comprehensive guide and a boilerplate Python script to get your application off the ground.
+
+### Architecture of Your App
+1. **The GUI (Front-end):** You can use `PyQt5`, `PySide6`, or `Tkinter` to create a standalone desktop app where the user selects files, target poly-count, and export formats.
+2. **The Engine (Back-end):** Your Python app will run Blender headlessly in the background, executing a `bpy` script that automates the pipeline.
+
+### The Pipeline Logic
+1. **Import** the high-poly model.
+2. **Duplicate** it to create the low-poly base.
+3. **Decimate** the duplicate to the target polygon count.
+4. **UV Unwrap** the low-poly model (so textures have a place to be baked).
+5. **Bake** the Normal, Diffuse (Color), and Roughness maps from the High-Poly to the Low-Poly mesh using Cycles.
+6. **Export** the low-poly model to `.glb`, `.gltf`, `.obj`, or `.fbx`.
+
+### Python Boilerplate (`bpy` script)
+This script is designed to be run headlessly by Blender. You can trigger it from your main Python app using: 
+`subprocess.run(["blender", "--background", "--python", "decimate_bake.py", "--", "args..."])`
+
+```python
+import bpy
+import os
+import sys
+
+def clear_scene():
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+
+def import_model(filepath):
+    ext = os.path.splitext(filepath)[1].lower()
+    if ext == '.obj':
+        bpy.ops.wm.obj_import(filepath=filepath)
+    elif ext == '.fbx':
+        bpy.ops.import_scene.fbx(filepath=filepath)
+    elif ext in['.gltf', '.glb']:
+        bpy.ops.import_scene.gltf(filepath=filepath)
+    
+    high_poly = bpy.context.selected_objects[0]
+    high_poly.name = "HighPoly"
+    return high_poly
+
+def create_low_poly(high_poly, decimate_ratio=0.1):
+    # Duplicate high poly
+    bpy.ops.object.select_all(action='DESELECT')
+    high_poly.select_set(True)
+    bpy.context.view_layer.objects.active = high_poly
+    bpy.ops.object.duplicate()
+    
+    low_poly = bpy.context.selected_objects[0]
+    low_poly.name = "LowPoly"
+    
+    # Add Decimate Modifier
+    modifier = low_poly.modifiers.new(name="Decimate", type='DECIMATE')
+    modifier.ratio = decimate_ratio
+    bpy.ops.object.modifier_apply(modifier="Decimate")
+    
+    # Smart UV Unwrap the new low poly model
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    bpy.ops.uv.smart_project(angle_limit=1.15192, margin_method='SCALED', island_margin=0.01)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    return low_poly
+
+def bake_textures(high_poly, low_poly, export_dir):
+    # Setup Cycles for baking
+    bpy.context.scene.render.engine = 'CYCLES'
+    bpy.context.scene.cycles.device = 'GPU' # Use GPU if available
+    bpy.context.scene.cycles.samples = 64
+    bpy.context.scene.render.bake.use_selected_to_active = True
+    bpy.context.scene.render.bake.margin = 16 # Padding
+    bpy.context.scene.render.bake.cage_extrusion = 0.1 # Ray cast distance
+    
+    # Create a new material and image for the low poly model
+    mat = bpy.data.materials.new(name="LowPolyMat")
+    mat.use_nodes = True
+    low_poly.data.materials.clear()
+    low_poly.data.materials.append(mat)
+    
+    nodes = mat.node_tree.nodes
+    
+    # 1. Bake Normals
+    normal_img = bpy.data.images.new("Bake_Normal", width=2048, height=2048)
+    normal_node = nodes.new('ShaderNodeTexImage')
+    normal_node.image = normal_img
+    nodes.active = normal_node # Must be active to bake to it
+    
+    # Select high then low
+    bpy.ops.object.select_all(action='DESELECT')
+    high_poly.select_set(True)
+    low_poly.select_set(True)
+    bpy.context.view_layer.objects.active = low_poly
+    
+    # Bake Normal
+    bpy.ops.object.bake(type='NORMAL')
+    normal_path = os.path.join(export_dir, "lowpoly_normal.png")
+    normal_img.filepath_raw = normal_path
+    normal_img.save()
+    
+    # (Optional) You can repeat the Node setup and Bake process here for:
+    # type='DIFFUSE' (Color/Albedo)
+    # type='ROUGHNESS'
+    # type='EMIT' (for glowing parts)
+    
+    return mat
+
+def export_model(low_poly, export_path, format_type):
+    bpy.ops.object.select_all(action='DESELECT')
+    low_poly.select_set(True)
+    
+    if format_type == 'obj':
+        # OBJ is perfect for Tabletop Simulator and TaleSpire
+        bpy.ops.wm.obj_export(filepath=export_path, export_selected_objects=True)
+    elif format_type == 'fbx':
+        bpy.ops.export_scene.fbx(filepath=export_path, use_selection=True)
+    elif format_type in['gltf', 'glb']:
+        # GLB packs the baked textures directly into the file!
+        bpy.ops.export_scene.gltf(filepath=export_path, use_selection=True, export_format='GLB')
+
+# --- Main Execution ---
+if __name__ == "__main__":
+    # In production, pass these via sys.argv from your GUI app
+    INPUT_FILE = "path/to/high_poly.obj"
+    OUTPUT_FILE = "path/to/output.glb"
+    EXPORT_FORMAT = "glb"
+    OUTPUT_DIR = os.path.dirname(OUTPUT_FILE)
+    
+    clear_scene()
+    
+    print("Importing High Poly...")
+    high_poly = import_model(INPUT_FILE)
+    
+    print("Decimating...")
+    low_poly = create_low_poly(high_poly, decimate_ratio=0.05) # Reduces polycount to 5%
+    
+    print("Baking Textures...")
+    bake_textures(high_poly, low_poly, OUTPUT_DIR)
+    
+    print(f"Exporting to {EXPORT_FORMAT}...")
+    export_model(low_poly, OUTPUT_FILE, EXPORT_FORMAT)
+    
+    print("Done!")
+```
+
+### Important Considerations for Your App:
+
+#### 1. Tabletop Simulator & TaleSpire specifics:
+* **Tabletop Simulator (TTS):** Only supports `.obj` and Unity AssetBundles natively. When exporting for TTS, your app needs to output an `.obj` file and separate `.png` or `.jpg` image files for the Diffuse map, Normal map, and Collider mesh.
+* **TaleSpire:** TaleSpire relies on standard Unity modding limits. Exporting a clean `.obj` or `.fbx` with a baked combined texture map is the most optimal way to integrate custom minis via tools like *LordAshes' Custom Mini Plugin*.
+
+#### 2. Automatic UV Unwrapping
+In the script, I used `bpy.ops.uv.smart_project()`. High-poly models usually have messy or overlapping UVs. For a low poly model to properly receive baked normals, its UV maps *must not overlap*. Smart project automatically breaks the mesh into flat islands.
+
+#### 3. How to Deploy the Python App without requiring the user to install Blender:
+If you want to distribute this application as an `.exe` so end-users don't have to download Blender, you can use the **Standalone `bpy` Module**. 
+You can install Blender's engine directly into your standard Python environment:
+```bash
+pip install bpy
+```
+*(Note: As of recently, the `bpy` pip package is maintained up to version 4.x. It is large (several hundred MBs), but it allows you to bundle Blender's massive processing power seamlessly into a PyQt/Tkinter desktop app using PyInstaller.)*
+
+#### 4. The "Cage" Extrusion
+When baking normals, intersecting geometry can cause "black spots" or artifacts. In the `bake_textures` function, the `cage_extrusion = 0.1` parameter tells the engine to cast rays slightly outward to capture the high-poly detail. You might want to expose this variable as a slider in your application's UI, so users can tweak it if their bakes come out looking distorted.
