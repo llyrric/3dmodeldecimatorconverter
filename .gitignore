@@ -22,6 +22,7 @@ blender/
 *.png
 *.jpg
 *.mtl
+release*.zip
 
 # OS
 .DS_Store

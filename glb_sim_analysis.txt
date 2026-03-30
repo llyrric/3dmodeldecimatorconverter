@@ -1,0 +1,12 @@
+GLB Version: 2, Total Length: 231940068
+Modified: True
+
+--- Extensions ---
+
+--- Attributes/Extensions after cleaning ---
+Mesh 0 Prim 0 Attributes: ['POSITION', 'COLOR_0', 'NORMAL']
+Mesh 1 Prim 0 Attributes: ['POSITION', 'COLOR_0', 'NORMAL']
+Mesh 2 Prim 0 Attributes: ['POSITION', 'COLOR_0', 'NORMAL']
+Mesh 3 Prim 0 Attributes: ['POSITION', 'COLOR_0', 'NORMAL']
+Mesh 4 Prim 0 Attributes: ['POSITION', 'TEXCOORD_0', 'NORMAL']
+Mesh 5 Prim 0 Attributes: ['POSITION', 'TEXCOORD_0', 'NORMAL']

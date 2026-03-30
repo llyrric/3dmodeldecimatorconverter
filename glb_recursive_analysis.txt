@@ -1,0 +1,110 @@
+GLB Version: 2, Total Length: 231940068
+Total underscore keys found: 92
+First 100 underscore keys:
+  /meshes[0]/primitives[0]/attributes/______________EDGEGRADIENT: 2
+  /meshes[0]/primitives[0]/attributes/_____________EDGEGRADIENT: 3
+  /meshes[0]/primitives[0]/attributes/____________EDGEGRADIENT: 4
+  /meshes[0]/primitives[0]/attributes/___________EDGEGRADIENT: 5
+  /meshes[0]/primitives[0]/attributes/__________EDGEGRADIENT: 6
+  /meshes[0]/primitives[0]/attributes/_________EDGEGRADIENT: 7
+  /meshes[0]/primitives[0]/attributes/________EDGEGRADIENT: 8
+  /meshes[0]/primitives[0]/attributes/_______EDGEGRADIENT: 9
+  /meshes[0]/primitives[0]/attributes/______EDGEGRADIENT: 10
+  /meshes[0]/primitives[0]/attributes/_____CREVICE: 11
+  /meshes[0]/primitives[0]/attributes/_____EDGEGRADIENT: 12
+  /meshes[0]/primitives[0]/attributes/______SURFACE_PROPS: 13
+  /meshes[0]/primitives[0]/attributes/____CREVICE: 14
+  /meshes[0]/primitives[0]/attributes/____EDGEGRADIENT: 15
+  /meshes[0]/primitives[0]/attributes/_____SURFACE_PROPS: 16
+  /meshes[0]/primitives[0]/attributes/___CREVICE: 17
+  /meshes[0]/primitives[0]/attributes/___EDGEGRADIENT: 18
+  /meshes[0]/primitives[0]/attributes/____SURFACE_PROPS: 19
+  /meshes[0]/primitives[0]/attributes/__CREVICE: 20
+  /meshes[0]/primitives[0]/attributes/__EDGEGRADIENT: 21
+  /meshes[0]/primitives[0]/attributes/___SURFACE_PROPS: 22
+  /meshes[0]/primitives[0]/attributes/_SURFACEPROPS: 23
+  /meshes[0]/primitives[0]/attributes/__SURFACE_PROPS: 25
+  /meshes[1]/primitives[0]/attributes/______________EDGEGRADIENT: 29
+  /meshes[1]/primitives[0]/attributes/_____________EDGEGRADIENT: 30
+  /meshes[1]/primitives[0]/attributes/____________EDGEGRADIENT: 31
+  /meshes[1]/primitives[0]/attributes/___________EDGEGRADIENT: 32
+  /meshes[1]/primitives[0]/attributes/__________EDGEGRADIENT: 33
+  /meshes[1]/primitives[0]/attributes/_________EDGEGRADIENT: 34
+  /meshes[1]/primitives[0]/attributes/________EDGEGRADIENT: 35
+  /meshes[1]/primitives[0]/attributes/_______EDGEGRADIENT: 36
+  /meshes[1]/primitives[0]/attributes/______EDGEGRADIENT: 37
+  /meshes[1]/primitives[0]/attributes/_____CREVICE: 38
+  /meshes[1]/primitives[0]/attributes/_____EDGEGRADIENT: 39
+  /meshes[1]/primitives[0]/attributes/______SURFACE_PROPS: 40
+  /meshes[1]/primitives[0]/attributes/____CREVICE: 41
+  /meshes[1]/primitives[0]/attributes/____EDGEGRADIENT: 42
+  /meshes[1]/primitives[0]/attributes/_____SURFACE_PROPS: 43
+  /meshes[1]/primitives[0]/attributes/___CREVICE: 44
+  /meshes[1]/primitives[0]/attributes/___EDGEGRADIENT: 45
+  /meshes[1]/primitives[0]/attributes/____SURFACE_PROPS: 46
+  /meshes[1]/primitives[0]/attributes/__CREVICE: 47
+  /meshes[1]/primitives[0]/attributes/__EDGEGRADIENT: 48
+  /meshes[1]/primitives[0]/attributes/___SURFACE_PROPS: 49
+  /meshes[1]/primitives[0]/attributes/_SURFACEPROPS: 50
+  /meshes[1]/primitives[0]/attributes/__SURFACE_PROPS: 52
+  /meshes[2]/primitives[0]/attributes/______________EDGEGRADIENT: 56
+  /meshes[2]/primitives[0]/attributes/_____________EDGEGRADIENT: 57
+  /meshes[2]/primitives[0]/attributes/____________EDGEGRADIENT: 58
+  /meshes[2]/primitives[0]/attributes/___________EDGEGRADIENT: 59
+  /meshes[2]/primitives[0]/attributes/__________EDGEGRADIENT: 60
+  /meshes[2]/primitives[0]/attributes/_________EDGEGRADIENT: 61
+  /meshes[2]/primitives[0]/attributes/________EDGEGRADIENT: 62
+  /meshes[2]/primitives[0]/attributes/_______EDGEGRADIENT: 63
+  /meshes[2]/primitives[0]/attributes/______EDGEGRADIENT: 64
+  /meshes[2]/primitives[0]/attributes/_____CREVICE: 65
+  /meshes[2]/primitives[0]/attributes/_____EDGEGRADIENT: 66
+  /meshes[2]/primitives[0]/attributes/______SURFACE_PROPS: 67
+  /meshes[2]/primitives[0]/attributes/____CREVICE: 68
+  /meshes[2]/primitives[0]/attributes/____EDGEGRADIENT: 69
+  /meshes[2]/primitives[0]/attributes/_____SURFACE_PROPS: 70
+  /meshes[2]/primitives[0]/attributes/___CREVICE: 71
+  /meshes[2]/primitives[0]/attributes/___EDGEGRADIENT: 72
+  /meshes[2]/primitives[0]/attributes/____SURFACE_PROPS: 73
+  /meshes[2]/primitives[0]/attributes/__CREVICE: 74
+  /meshes[2]/primitives[0]/attributes/__EDGEGRADIENT: 75
+  /meshes[2]/primitives[0]/attributes/___SURFACE_PROPS: 76
+  /meshes[2]/primitives[0]/attributes/_SURFACEPROPS: 77
+  /meshes[2]/primitives[0]/attributes/__SURFACE_PROPS: 79
+  /meshes[3]/primitives[0]/attributes/______________EDGEGRADIENT: 83
+  /meshes[3]/primitives[0]/attributes/_____________EDGEGRADIENT: 84
+  /meshes[3]/primitives[0]/attributes/____________EDGEGRADIENT: 85
+  /meshes[3]/primitives[0]/attributes/___________EDGEGRADIENT: 86
+  /meshes[3]/primitives[0]/attributes/__________EDGEGRADIENT: 87
+  /meshes[3]/primitives[0]/attributes/_________EDGEGRADIENT: 88
+  /meshes[3]/primitives[0]/attributes/________EDGEGRADIENT: 89
+  /meshes[3]/primitives[0]/attributes/_______EDGEGRADIENT: 90
+  /meshes[3]/primitives[0]/attributes/______EDGEGRADIENT: 91
+  /meshes[3]/primitives[0]/attributes/_____CREVICE: 92
+  /meshes[3]/primitives[0]/attributes/_____EDGEGRADIENT: 93
+  /meshes[3]/primitives[0]/attributes/______SURFACE_PROPS: 94
+  /meshes[3]/primitives[0]/attributes/____CREVICE: 95
+  /meshes[3]/primitives[0]/attributes/____EDGEGRADIENT: 96
+  /meshes[3]/primitives[0]/attributes/_____SURFACE_PROPS: 97
+  /meshes[3]/primitives[0]/attributes/___CREVICE: 98
+  /meshes[3]/primitives[0]/attributes/___EDGEGRADIENT: 99
+  /meshes[3]/primitives[0]/attributes/____SURFACE_PROPS: 100
+  /meshes[3]/primitives[0]/attributes/__CREVICE: 101
+  /meshes[3]/primitives[0]/attributes/__EDGEGRADIENT: 102
+  /meshes[3]/primitives[0]/attributes/___SURFACE_PROPS: 103
+  /meshes[3]/primitives[0]/attributes/_SURFACEPROPS: 104
+  /meshes[3]/primitives[0]/attributes/__SURFACE_PROPS: 106
+
+Total objects with 'extras' found: 2
+First 10 extras:
+  /nodes[5]/extras: {'isMiniPainterDecal': True, 'layerId': '0050f7a0-e1a5-4e0f-9e93-2bfd9211c7a6', 'layerName': 'Eye De
+  /nodes[6]/extras: {'isMiniPainterDecal': True, 'layerId': 'd1a70245-dfe2-4487-ac91-4d1231d7d52c', 'layerName': 'Eye De
+
+--- Extensions ---
+
+--- Attributes/Extensions after cleaning ---
+Mesh 0 Prim 0 Custom Attrs REMAINING: ['______________EDGEGRADIENT', '_____________EDGEGRADIENT', '____________EDGEGRADIENT', '___________EDGEGRADIENT', '__________EDGEGRADIENT', '_________EDGEGRADIENT', '________EDGEGRADIENT', '_______EDGEGRADIENT', '______EDGEGRADIENT', '_____CREVICE', '_____EDGEGRADIENT', '______SURFACE_PROPS', '____CREVICE', '____EDGEGRADIENT', '_____SURFACE_PROPS', '___CREVICE', '___EDGEGRADIENT', '____SURFACE_PROPS', '__CREVICE', '__EDGEGRADIENT', '___SURFACE_PROPS', '_SURFACEPROPS', '__SURFACE_PROPS']
+Mesh 1 Prim 0 Custom Attrs REMAINING: ['______________EDGEGRADIENT', '_____________EDGEGRADIENT', '____________EDGEGRADIENT', '___________EDGEGRADIENT', '__________EDGEGRADIENT', '_________EDGEGRADIENT', '________EDGEGRADIENT', '_______EDGEGRADIENT', '______EDGEGRADIENT', '_____CREVICE', '_____EDGEGRADIENT', '______SURFACE_PROPS', '____CREVICE', '____EDGEGRADIENT', '_____SURFACE_PROPS', '___CREVICE', '___EDGEGRADIENT', '____SURFACE_PROPS', '__CREVICE', '__EDGEGRADIENT', '___SURFACE_PROPS', '_SURFACEPROPS', '__SURFACE_PROPS']
+Mesh 2 Prim 0 Custom Attrs REMAINING: ['______________EDGEGRADIENT', '_____________EDGEGRADIENT', '____________EDGEGRADIENT', '___________EDGEGRADIENT', '__________EDGEGRADIENT', '_________EDGEGRADIENT', '________EDGEGRADIENT', '_______EDGEGRADIENT', '______EDGEGRADIENT', '_____CREVICE', '_____EDGEGRADIENT', '______SURFACE_PROPS', '____CREVICE', '____EDGEGRADIENT', '_____SURFACE_PROPS', '___CREVICE', '___EDGEGRADIENT', '____SURFACE_PROPS', '__CREVICE', '__EDGEGRADIENT', '___SURFACE_PROPS', '_SURFACEPROPS', '__SURFACE_PROPS']
+Mesh 3 Prim 0 Custom Attrs REMAINING: ['______________EDGEGRADIENT', '_____________EDGEGRADIENT', '____________EDGEGRADIENT', '___________EDGEGRADIENT', '__________EDGEGRADIENT', '_________EDGEGRADIENT', '________EDGEGRADIENT', '_______EDGEGRADIENT', '______EDGEGRADIENT', '_____CREVICE', '_____EDGEGRADIENT', '______SURFACE_PROPS', '____CREVICE', '____EDGEGRADIENT', '_____SURFACE_PROPS', '___CREVICE', '___EDGEGRADIENT', '____SURFACE_PROPS', '__CREVICE', '__EDGEGRADIENT', '___SURFACE_PROPS', '_SURFACEPROPS', '__SURFACE_PROPS']
+Mesh 4 Prim 0 Attributes: ['POSITION', 'TEXCOORD_0', 'NORMAL']
+Mesh 5 Prim 0 Attributes: ['POSITION', 'TEXCOORD_0', 'NORMAL']

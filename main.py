@@ -168,6 +168,7 @@ class DecimatorApp(QMainWindow):
         
         self.log_text = QTextEdit()
         self.log_text.setReadOnly(True)
+        self.log_text.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOn)
         self.log_text.setPlaceholderText("Logs will appear here...")
         layout.addWidget(self.log_text)
 
@@ -323,9 +324,14 @@ class DecimatorApp(QMainWindow):
         
         # Start worker
         self.worker = ProcessorWorker(blender_path, script_path, args)
-        self.worker.log_received.connect(self.log_text.append)
+        self.worker.log_received.connect(self.append_log)
         self.worker.finished.connect(self.on_finished)
         self.worker.run()
+
+    def append_log(self, text):
+        self.log_text.insertPlainText(text)
+        # Auto-scroll to bottom
+        self.log_text.ensureCursorVisible()
 
     def on_finished(self, exit_code, status):
         self.process_btn.setEnabled(True)
