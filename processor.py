@@ -21,10 +21,11 @@ def clean_glb(filepath):
         return filepath
         
     try:
-        base = filepath + ".unpacked"
+        temp_dir = tempfile.TemporaryDirectory()
+        base = os.path.join(temp_dir.name, os.path.basename(filepath) + ".unpacked")
         gltf_path = base + ".gltf"
         bin_filename = os.path.basename(base) + ".bin"
-        bin_path = os.path.join(os.path.dirname(filepath), bin_filename)
+        bin_path = os.path.join(temp_dir.name, bin_filename)
 
         with open(filepath, 'rb') as f:
             # Header
@@ -101,18 +102,18 @@ def clean_glb(filepath):
             with open(bin_path, 'wb') as f:
                 f.write(bin_data)
                 
-        return gltf_path
+        return gltf_path, temp_dir
         
     except Exception as e:
         print(f"Warning: Could not unpack/clean GLB: {e}")
         import traceback
         traceback.print_exc()
-        return filepath
+        return filepath, None
 
 def import_model(filepath):
     """
-    Imports a 3D model based on its extension.
-    Returns the imported object.
+    Imports a 3D model, separates base meshes from decals, joins and welds the base.
+    Returns: (welded_high_poly, decals, surface_props_attr, target_col_attr)
     """
     ext = os.path.splitext(filepath)[1].lower()
     
@@ -125,9 +126,10 @@ def import_model(filepath):
             bpy.ops.wm.obj_import(filepath=filepath)
         elif ext == '.fbx':
             bpy.ops.import_scene.fbx(filepath=filepath)
-        elif ext in ['.gltf', '.glb']:
+        if ext in ['.gltf', '.glb']:
+            temp_import_dir = None
             if ext == '.glb':
-                clean_path = clean_glb(filepath)
+                clean_path, temp_import_dir = clean_glb(filepath)
             
             # Revert to default settings now that clean_glb handles the attribute issue
             # This is safer for Blender 5.1's internal state
@@ -141,103 +143,109 @@ def import_model(filepath):
             bpy.context.view_layer.update()
             print("View layer updated."); sys.stdout.flush()
             
-        # Selection should contain the imported objects
-        print("Checking selected objects...")
-        imported_objs = [obj for obj in bpy.context.selected_objects if obj.type == 'MESH']
-        print(f"Found {len(imported_objs)} mesh objects in selection."); sys.stdout.flush()
-        
-        if not imported_objs:
-            # Fallback: Find any mesh that wasn't there before
-            print("No mesh in selection, falling back to finding all meshes...")
-            imported_objs = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH' and obj.name != "HighPoly"]
-            print(f"Found {len(imported_objs)} mesh objects in scene."); sys.stdout.flush()
-            
-        if not imported_objs:
+        all_objs = [obj for obj in bpy.context.scene.objects if obj.type == 'MESH' and obj.name != "HighPoly"]
+        if not all_objs:
             raise RuntimeError("No mesh found in imported file.")
             
-        # Join multiple meshes into one for easier processing if necessary
-        if len(imported_objs) > 1:
-            print(f"Joining {len(imported_objs)} meshes...")
+        # 1. Identify Decals vs Base Meshes
+        base_meshes = []
+        decals = []
+        
+        for obj in all_objs:
+            name_low = obj.name.lower()
+            if any(k in name_low for k in ["decal", "sticker", "eye", "glass", "lens"]):
+                print(f" - Identified decal object: {obj.name}")
+                decals.append(obj)
+            else:
+                base_meshes.append(obj)
+        
+        if not base_meshes and decals:
+            decals.sort(key=lambda o: len(o.data.vertices), reverse=True)
+            base_meshes = [decals.pop(0)]
+            print(f" - Fallback: Reassigned {base_meshes[0].name} as base mesh.")
+            
+        # 2. Join and Weld Base Meshes (The "Un-Shredder")
+        high_poly = None
+        if base_meshes:
+            print(f"Joining {len(base_meshes)} base meshes...")
             bpy.ops.object.select_all(action='DESELECT')
-            for obj in imported_objs:
+            for obj in base_meshes:
                 obj.select_set(True)
-            bpy.context.view_layer.objects.active = imported_objs[0]
+            bpy.context.view_layer.objects.active = base_meshes[0]
             bpy.ops.object.join()
             high_poly = bpy.context.active_object
-            print("Meshes joined."); sys.stdout.flush()
+            high_poly.name = "HighPoly_WeldedBase"
             
-            # --- Cleanup High Poly ---
-            print("Cleaning up HighPoly (Remove Doubles)...")
+            # Weld the vertices (Merge by Distance) to heal the shredder seams
+            print("Welding base mesh vertices (Merge by Distance)...")
             bpy.ops.object.mode_set(mode='EDIT')
             bpy.ops.mesh.select_all(action='SELECT')
             bpy.ops.mesh.remove_doubles(threshold=0.0001)
             bpy.ops.object.mode_set(mode='OBJECT')
             
-            bpy.context.view_layer.update()
-        else:
-            high_poly = imported_objs[0]
-            
-        high_poly.name = "HighPoly"
-        
-        # Clear custom normals (often imported from GLTF and block smooth shading)
-        if high_poly.data.has_custom_normals:
-            print("Clearing custom split normals from HighPoly...")
-            bpy.ops.object.select_all(action='DESELECT')
+            # Clear custom normals and shade smooth
+            if high_poly.data.has_custom_normals:
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.customdata_custom_splitnormals_clear()
+                bpy.ops.object.mode_set(mode='OBJECT')
             high_poly.select_set(True)
-            bpy.context.view_layer.objects.active = high_poly
-            bpy.ops.object.mode_set(mode='EDIT')
-            bpy.ops.mesh.customdata_custom_splitnormals_clear()
-            bpy.ops.object.mode_set(mode='OBJECT')
-        
-        # Apply smooth shading to high poly
-        print("Applying smooth shading to HighPoly...")
-        bpy.ops.object.select_all(action='DESELECT')
-        high_poly.select_set(True)
-        bpy.context.view_layer.objects.active = high_poly
-        bpy.ops.object.shade_smooth()
-        
-        # --- Audit High Poly ---
-        print(f"HighPoly Audit:")
-        print(f" - Vertices: {len(high_poly.data.vertices)}")
-        print(f" - Polygons: {len(high_poly.data.polygons)}")
-        print(f" - UV Layers: {', '.join([uv.name for uv in high_poly.data.uv_layers])}")
-        
-        # Log ALL attributes for debugging
-        all_attrs = [a.name for a in high_poly.data.attributes]
-        print(f" - All Attributes: {', '.join(all_attrs)}")
-        
-        color_attrs = [col.name for col in high_poly.data.color_attributes]
-        print(f" - Color Attributes: {', '.join(color_attrs)}")
-        print(f" - Materials: {len(high_poly.data.materials)}")
-        
+            bpy.ops.object.shade_smooth()
+            
+        # 3. Handle Decals (Shade Smooth)
+        for d in decals:
+            d.select_set(True)
+            bpy.context.view_layer.objects.active = d
+            bpy.ops.object.shade_smooth()
+            # Also clear custom normals for decals to ensure good baking
+            if d.data.has_custom_normals:
+                bpy.ops.object.mode_set(mode='EDIT')
+                bpy.ops.mesh.customdata_custom_splitnormals_clear()
+                bpy.ops.object.mode_set(mode='OBJECT')
+
         # Find the best attribute for color
+        primary_obj = high_poly if high_poly else (decals[0] if decals else None)
+        surface_props_attr = None
         target_col_attr = None
-        # Preferred names: prioritize COLOR_0 per specification
-        for name in ['COLOR_0', 'Color', 'Col', 'color']:
-            if name in color_attrs:
-                target_col_attr = name
-                break
         
-        # If not found, take the first one that isn't 'position'
-        if not target_col_attr:
-            for name in color_attrs:
-                if name.lower() not in ['position']:
+        if primary_obj:
+            all_attr_names = [a.name for a in primary_obj.data.attributes]
+            color_attrs = [col.name for col in primary_obj.data.color_attributes]
+            
+            # Find SURFACE_PROPS
+            sp_variants = [n for n in all_attr_names if 'SURFACE_PROPS' in n.upper()]
+            if sp_variants:
+                surface_props_attr = sorted(sp_variants, key=len, reverse=True)[0]
+                print(f"Selected SURFACE_PROPS: {surface_props_attr}")
+                
+            # Find COLOR
+            for name in ['COLOR_0', 'Color', 'Col', 'color']:
+                if name in color_attrs:
                     target_col_attr = name
                     break
+            if not target_col_attr:
+                for name in color_attrs:
+                    if name.lower() not in ['position']:
+                        target_col_attr = name
+                        break
         
         if target_col_attr:
             print(f"Selected color attribute for baking: '{target_col_attr}'")
         
-        # Robust check for SURFACE_PROPS variants
+        # Robust check for SURFACE_PROPS and EDGEGRADIENT variants
+        # We find identifying keywords in all attributes
         surface_props_attr = None
-        for attr in high_poly.data.attributes:
-            if 'SURFACE_PROPS' in attr.name.upper():
-                surface_props_attr = attr.name
-                # Keep searching for the one with more underscores if multiple exist
-                # as Blender join tends to add them.
+        edge_gradient_attr = None
         
-        if surface_props_attr:
-            print(f"Found surface properties attribute on high poly: {surface_props_attr}")
+        all_attr_names = [a.name for a in high_poly.data.attributes]
+        sp_variants = [n for n in all_attr_names if 'SURFACE_PROPS' in n.upper()]
+        eg_variants = [n for n in all_attr_names if 'EDGEGRADIENT' in n.upper()]
+        
+        if sp_variants:
+            surface_props_attr = sorted(sp_variants, key=len, reverse=True)[0]
+            print(f"Selected primary SURFACE_PROPS: {surface_props_attr}")
+        if eg_variants:
+            edge_gradient_attr = sorted(eg_variants, key=len, reverse=True)[0]
+            print(f"Selected primary EDGEGRADIENT: {edge_gradient_attr}")
         
         # Ensure high poly has at least one material for baking (albedo/color)
         if not high_poly.data.materials:
@@ -304,7 +312,10 @@ def import_model(filepath):
                 if principled.inputs['Metallic'].is_linked == False:
                     principled.inputs['Metallic'].default_value = 0.0
         
-        return high_poly, surface_props_attr
+        if target_col_attr:
+            print(f"Selected color attribute: {target_col_attr}")
+
+        return high_poly, decals, surface_props_attr, target_col_attr
         
     finally:
         # Cleanup cleaned file if one was created
@@ -316,6 +327,96 @@ def import_model(filepath):
                 if os.path.exists(bin_path):
                     os.remove(bin_path)
             except: pass
+
+def create_emissive_attribute_material(obj, attribute_name):
+    """
+    Creates a material that outputs raw vertex attribute data as glowing light (Emission).
+    Ensures that if the attribute is a Vector (X,Y,Z), it is correctly mapped to RGB.
+    """
+    mat_name = f"Mat_Bake_{attribute_name}"
+    mat = bpy.data.materials.get(mat_name)
+    if not mat:
+        mat = bpy.data.materials.new(name=mat_name)
+    
+    mat.use_nodes = True
+    nodes = mat.node_tree.nodes
+    links = mat.node_tree.links
+    nodes.clear()
+
+    # Create Attribute Node
+    attr_node = nodes.new(type="ShaderNodeAttribute")
+    attr_node.attribute_name = attribute_name
+    
+    # Create Emission Node
+    emit_node = nodes.new(type="ShaderNodeEmission")
+    
+    # Create Output Node
+    output_node = nodes.new(type="ShaderNodeOutputMaterial")
+    
+    # MIX LOGIC: Blender handles Vector/Color outputs differently! 
+    # To be ROBUST, we link the Color output directly.
+    # If the attribute is a FLOAT_VECTOR, Blender's Attribute node automatically 
+    # populates the 'Color' output with the X, Y, Z components as R, G, B.
+    links.new(attr_node.outputs['Color'], emit_node.inputs['Color'])
+    links.new(emit_node.outputs['Emission'], output_node.inputs['Surface'])
+    
+    # Apply to object
+    obj.data.materials.clear()
+    obj.data.materials.append(mat)
+    return mat
+
+def bake_pure_data_pass(high_poly_objs, low_poly, attribute_name, res_w, res_h, output_path):
+    """
+    Bakes the vertex attribute from high poly (Base + Decals) to an image texture on the low poly.
+    """
+    print(f"Prepping bakes for attribute: {attribute_name}...")
+    
+    # 1. Setup Emission Material on all high-poly objects
+    for hp in high_poly_objs:
+        create_emissive_attribute_material(hp, attribute_name)
+        
+    # 2. Setup Low Poly receiving image
+    img_name = f"Bake_{attribute_name}"
+    if img_name in bpy.data.images:
+        bpy.data.images.remove(bpy.data.images[img_name])
+    img = bpy.data.images.new(img_name, width=res_w, height=res_h)
+    
+    # Use the existing bake material/node on low poly
+    mat = low_poly.data.materials[0]
+    bake_node = mat.node_tree.nodes.get("BAKE_TARGET")
+    if not bake_node:
+        bake_node = mat.node_tree.nodes.new('ShaderNodeTexImage')
+        bake_node.name = "BAKE_TARGET"
+    
+    bake_node.image = img
+    mat.node_tree.nodes.active = bake_node
+    
+    # 3. Select High, then Low (Select ALL high poly sources)
+    bpy.ops.object.select_all(action='DESELECT')
+    for hp in high_poly_objs:
+        hp.select_set(True)
+    low_poly.select_set(True)
+    bpy.context.view_layer.objects.active = low_poly
+    
+    # 4. Bake (Type = EMIT)
+    bpy.context.scene.render.engine = 'CYCLES'
+    bpy.context.scene.render.bake.use_selected_to_active = True
+    bpy.context.scene.render.bake.margin = 16
+    # Reaches out to grab the floating decals! 0.05 units is ample for 0.005 offset.
+    bpy.context.scene.render.bake.cage_extrusion = 0.05
+    
+    print(f"Starting bake cycle for {attribute_name}...")
+    bpy.ops.object.bake(type='EMIT')
+    
+    # 5. Save the image
+    if output_path:
+        img.filepath_raw = output_path
+        img.file_format = 'PNG'
+        img.save()
+        print(f"Saved bake to {output_path}")
+    
+    return img
+
 
 def decimate_mesh(obj, target_triangles):
     """
@@ -370,27 +471,51 @@ def prepare_low_poly(high_poly, target_triangles):
     low_poly.name = "LowPoly"
     print("Mesh duplicated. Cleaning low poly for decimation..."); sys.stdout.flush()
     
-    # Aggressively clean low poly but PRESERVE _SURFACE_PROPS
-    for uv in list(low_poly.data.uv_layers):
-        print(f" - Removing existing UV layer: {uv.name}")
-        low_poly.data.uv_layers.remove(uv)
+    # --- Intelligent Attribute Cleanup ---
+    print("Intelligently cleaning redundant attributes...")
+    all_attrs = list(low_poly.data.attributes)
+    def get_base_name(name):
+        return name.strip('_').upper()
+    attr_groups = {}
+    for attr in all_attrs:
+        base = get_base_name(attr.name)
+        if base not in attr_groups:
+            attr_groups[base] = []
+        attr_groups[base].append(attr)
+    for base, variants in attr_groups.items():
+        if base in ['POSITION', 'NORMAL', 'TEXCOORD0']: continue
+        if base == 'COLOR0':
+            variant_to_keep = next((v for v in variants if v.name == 'COLOR_0'), variants[0])
+        else:
+            variant_to_keep = sorted(variants, key=lambda v: len(v.name), reverse=True)[0]
+        print(f" - Keeping primary {base}: {variant_to_keep.name}")
+        for v in variants:
+            if v != variant_to_keep:
+                print(f" - Removing redundant variant: {v.name}")
+                try: low_poly.data.attributes.remove(v)
+                except: pass
     
+    # Explicitly remove extra color layers
     for col in list(low_poly.data.color_attributes):
-        if 'SURFACE_PROPS' in col.name.upper():
-            print(f" - PRESERVING Color Attribute: {col.name}")
-            continue
-        print(f" - Removing existing Color Attribute: {col.name}")
-        low_poly.data.color_attributes.remove(col)
+        if col.name != 'COLOR_0' and 'SURFACE_PROPS' not in col.name.upper() and 'EDGEGRADIENT' not in col.name.upper():
+            print(f" - Removing extra color layer: {col.name}")
+            low_poly.data.color_attributes.remove(col)
     
-    # Check regular attributes too
+    # Ensure FIX_COLOR_0 is present as FLOAT_VECTOR (Force VEC3 FLOAT export)
+    if "FIX_COLOR_0" not in low_poly.data.attributes:
+        print(" - Creating FIX_COLOR_0 attribute as FLOAT_VECTOR (3-component FLOAT).")
+        low_poly.data.attributes.new(name="FIX_COLOR_0", type='FLOAT_VECTOR', domain='POINT')
+        
+    # Explicitly remove extra color layers (be very aggressive)
+    all_colors = [c.name for c in low_poly.data.color_attributes]
+    for name in all_colors:
+        if name != 'COLOR_0': # If COLOR_0 exists for some reason, keep it, but we prefer FIX_COLOR_0
+             low_poly.data.color_attributes.remove(low_poly.data.color_attributes[name])
+    
+    # Check regular attributes too for stray colors
     for attr in list(low_poly.data.attributes):
-        if 'SURFACE_PROPS' in attr.name.upper() or attr.name == 'position': continue
-        # Most other custom attributes should be removed to avoid issues
-        print(f" - Removing existing Attribute: {attr.name}")
-        # Blender might not let us remove certain built-in attributes
-        try:
-            low_poly.data.attributes.remove(attr)
-        except: pass
+        if attr.name.startswith('COLOR_') and attr.name != 'COLOR_0':
+             low_poly.data.attributes.remove(attr)
     
     bpy.context.view_layer.update()
     print("Low poly cleaned."); sys.stdout.flush()
@@ -444,9 +569,36 @@ def prepare_low_poly(high_poly, target_triangles):
     print("Deselecting and returning to OBJECT mode..."); sys.stdout.flush()
     bpy.ops.mesh.select_all(action='DESELECT')
     
-    # DO NOT call view_layer.update() here as it seems to trigger the crash in 5.1
+    # Return to Object mode to finalize and sanitize
     bpy.ops.object.mode_set(mode='OBJECT')
     print("Returned to OBJECT mode."); sys.stdout.flush()
+    
+    # --- Final Sanitization for universal compatibility (MS 3D Viewer Fix) ---
+    print("Performing final sanitization on LowPoly...")
+    standard_names = ['POSITION', 'NORMAL', 'TEXCOORD_0', 'TEXCOORD_1', 'COLOR_0', 'COLOR_1']
+    
+    # In Blender's Python API, we loop through attributes and remove those that won't map to standard glTF
+    for attr in list(low_poly.data.attributes):
+        # We also keep our "FIX_COLOR_0" if it hasn't been renamed yet, though we prefer COLOR_0
+        if attr.name not in standard_names and attr.name != 'FIX_COLOR_0' and not attr.name.startswith('UVMap'):
+            print(f" - Stripping non-standard attribute: {attr.name}")
+            try: low_poly.data.attributes.remove(attr)
+            except: pass
+
+    # Ensure shading is updated and normals are solid
+    print("Recalculating normals..."); sys.stdout.flush()
+    bpy.ops.object.mode_set(mode='EDIT')
+    bpy.ops.mesh.select_all(action='SELECT')
+    # Refreshes normals at the data level (more robust in background mode than ops.mesh.customdata_normals_clear)
+    low_poly.data.update()
+    bpy.ops.mesh.normals_make_consistent(inside=False)
+    bpy.ops.object.mode_set(mode='OBJECT')
+    
+    # Final smooth shading reinforcement
+    bpy.ops.object.shade_smooth()
+    
+    bpy.context.view_layer.update()
+    print("Returned to OBJECT mode and sanitized."); sys.stdout.flush()
     
     return low_poly
 
@@ -608,17 +760,73 @@ def bake_and_save(high_poly, low_poly, bake_type, image_name, res_w, res_h, outp
         print(f"ERROR: Bake operator failed for {bake_type}: {e}")
         return None
     
-    # Save image
-    img.filepath_raw = output_path
-    img.file_format = 'PNG'
-    img.save()
-    print(f"Saved {bake_type} bake to {output_path}")
+    # Save image if output_path is provided
+    if output_path:
+        img.filepath_raw = output_path
+        img.file_format = 'PNG'
+        img.save()
+        print(f"Saved {bake_type} bake to {output_path}")
     
     return img
 
-def apply_baked_textures(low_poly, diffuse_img=None, normal_img=None, orm_img=None, sheen_img=None):
+def bake_to_vertex_colors(high_poly, low_poly, target_attr_name="FIX_COLOR_0"):
     """
-    Connects the baked textures to the material of the low poly model for preview/export.
+    Bakes the vertex colors from high poly to low poly attributes.
+    """
+    print(f"Baking vertex colors from HighPoly to LowPoly attribute '{target_attr_name}'...")
+    
+    # 1. Ensure LowPoly has the target attribute and it is active for baking
+    if target_attr_name not in low_poly.data.color_attributes:
+        low_poly.data.color_attributes.new(name=target_attr_name, type='FLOAT_COLOR', domain='POINT')
+        
+    # Set it active for baking
+    attr = low_poly.data.color_attributes[target_attr_name]
+    # In newer Blender versions (4.2+), we use active_render or set the active layer
+    try:
+        attr.active_render = True
+    except:
+        pass
+    
+    # Try to set it as the active color attribute for the mesh data
+    try:
+        low_poly.data.color_attributes.active_color = attr
+    except:
+        pass
+    
+    # 2. Setup high poly material to emit vertex colors
+    # We'll use the existing import_model logic which links target_col_attr to Base Color
+    # So we just need to link it to Emission for the bake.
+    
+    # 3. Perform the bake
+    bpy.ops.object.select_all(action='DESELECT')
+    high_poly.select_set(True)
+    low_poly.select_set(True)
+    bpy.context.view_layer.objects.active = low_poly
+    
+    bpy.context.scene.render.engine = 'CYCLES'
+    bpy.context.scene.render.bake.use_selected_to_active = True
+    bpy.context.scene.render.bake.target = 'VERTEX_COLORS'
+    
+    try:
+        # We use EMIT to transfer vertex colors accurately
+        # Set Base Color to white to avoid tinting if using Diffuse, 
+        # but EMIT is better.
+        print("Starting vertex color transfer bake (EMIT)...")
+        # Ensure only the active color attribute is baked
+        bpy.ops.object.bake(type='EMIT')
+        print("Vertex color transfer bake finished.")
+        return True
+    except Exception as e:
+        print(f"ERROR: Vertex color bake failed: {e}")
+        return False
+    finally:
+        # Reset bake target for future image bakes
+        bpy.context.scene.render.bake.target = 'IMAGE_TEXTURES'
+
+def apply_baked_textures(low_poly, diffuse_img=None, normal_img=None, surface_props_img=None):
+    """
+    Connects the baked textures to the material of the low poly model.
+    Unpacks surface_props_img (R: Rough, G: Metal, B: Sheen) into the BSDF.
     """
     if not low_poly.data.materials:
         return
@@ -631,40 +839,76 @@ def apply_baked_textures(low_poly, diffuse_img=None, normal_img=None, orm_img=No
     if not principled:
         return
     
+    # 1. Base Color & Vertex Color Preservation
+    # --------------------------------------------------------
+    # To satisfy strict viewers like MS 3D Viewer, we MUST:
+    # A) Use separate texture nodes for different PBR slots.
+    # B) Officially "use" the COLOR_0 attribute so the exporter doesn't flag it as unused.
+    # 
+    # MIX STRATEGY: Attribute COLOR_0 -> Mix (0.0001) -> Base Color.
+    # This is the industry-standard way to ensure vertex colors are exported
+    # without visually altering the baked diffuse texture.
+    
+    attr_node = nodes.new('ShaderNodeAttribute')
+    attr_node.attribute_name = "COLOR_0"
+    attr_node.location = (principled.location.x - 1000, principled.location.y)
+    
+    mix_node = nodes.new('ShaderNodeMix')
+    mix_node.data_type = 'RGBA'
+    mix_node.blend_type = 'MIX'
+    mix_node.inputs[0].default_value = 0.0001 # Factor
+    mix_node.location = (principled.location.x - 300, principled.location.y)
+    links.new(attr_node.outputs['Color'], mix_node.inputs[7]) # Input B
+    
     if diffuse_img:
         diff_node = nodes.new('ShaderNodeTexImage')
         diff_node.image = diffuse_img
-        links.new(diff_node.outputs['Color'], principled.inputs['Base Color'])
-        
+        diff_node.location = (principled.location.x - 600, principled.location.y)
+        links.new(diff_node.outputs['Color'], mix_node.inputs[6]) # Input A
+    else:
+        # If no texture, use a default mid-gray for Input A
+        mix_node.inputs[6].default_value = (0.5, 0.5, 0.5, 1.0)
+
+    links.new(mix_node.outputs[2], principled.inputs['Base Color'])
+
+    # Standardize Specular for non-washed-out look
+    spec_input = principled.inputs.get('Specular IOR Level') or principled.inputs.get('Specular')
+    if spec_input:
+        spec_input.default_value = 0.5
+    
+    # Ensure Emission is inactive but CLEAN
+    e_color_input = principled.inputs.get('Emission Color') or principled.inputs.get('Emission')
+    if e_color_input:
+        e_color_input.default_value = (0, 0, 0, 1)
+    e_strength_input = principled.inputs.get('Emission Strength')
+    if e_strength_input:
+        e_strength_input.default_value = 0.0
+
+    # 2. Normal Map (Restored)
     if normal_img:
         norm_node = nodes.new('ShaderNodeTexImage')
         norm_node.image = normal_img
         norm_node.image.colorspace_settings.name = 'Non-Color'
-        
         norm_map = nodes.new('ShaderNodeNormalMap')
         links.new(norm_node.outputs['Color'], norm_map.inputs['Color'])
         links.new(norm_map.outputs['Normal'], principled.inputs['Normal'])
 
-    if orm_img:
-        orm_node = nodes.new('ShaderNodeTexImage')
-        orm_node.image = orm_img
-        orm_node.image.colorspace_settings.name = 'Non-Color'
-        orm_node.location = (principled.location.x - 600, principled.location.y - 300)
+    # 3. Surface Properties (Restored)
+    if surface_props_img:
+        props_node = nodes.new('ShaderNodeTexImage')
+        props_node.image = surface_props_img
+        props_node.image.colorspace_settings.name = 'Non-Color'
+        props_node.location = (principled.location.x - 600, principled.location.y - 300)
         
         sep = nodes.new('ShaderNodeSeparateColor')
-        links.new(orm_node.outputs['Color'], sep.inputs['Color'])
-        links.new(sep.outputs['Green'], principled.inputs['Roughness'])
-        links.new(sep.outputs['Blue'], principled.inputs['Metallic'])
-
-    if sheen_img:
-        sheen_node = nodes.new('ShaderNodeTexImage')
-        sheen_node.image = sheen_img
-        sheen_node.image.colorspace_settings.name = 'Non-Color'
-        sheen_node.location = (principled.location.x - 600, principled.location.y + 300)
+        links.new(props_node.outputs['Color'], sep.inputs['Color'])
+        
+        links.new(sep.outputs['Red'], principled.inputs['Roughness'])
+        links.new(sep.outputs['Green'], principled.inputs['Metallic'])
         
         sheen_input = principled.inputs.get('Sheen Weight') or principled.inputs.get('Sheen')
         if sheen_input:
-            links.new(sheen_node.outputs['Color'], sheen_input)
+            links.new(sep.outputs['Blue'], sheen_input)
 
 def main():
     # Parse arguments after '--'
@@ -679,273 +923,225 @@ def main():
     parser.add_argument("--format", default="obj", choices=["obj", "fbx", "glb"], help="Output format")
     parser.add_argument("--triangles", type=int, default=20000, help="Target triangle count")
     parser.add_argument("--resolution", type=int, default=2048, help="Texture resolution")
-    parser.add_argument("--bake_diffuse", action="store_true", help="Bake diffuse color")
-    parser.add_argument("--bake_normal", action="store_true", help="Bake normal map")
-    parser.add_argument("--bake_roughness", action="store_true", help="Bake roughness map")
-    parser.add_argument("--bake_metallic", action="store_true", help="Bake metallic map")
+    parser.add_argument("--bake_diffuse", action="store_true", default=True, help="Bake diffuse color (Default: True)")
+    parser.add_argument("--bake_normal", action="store_true", default=True, help="Bake normal map (Default: True)")
+    parser.add_argument("--bake_roughness", action="store_true", default=True, help="Bake roughness map (Default: True)")
+    parser.add_argument("--bake_metallic", action="store_true", default=True, help="Bake metallic map (Default: True)")
     
     args = parser.parse_args(args_list)
     
+    # 0. Workspace Cleanup (Remove debris from previous versions)
+    print("Cleaning up work directory..."); sys.stdout.flush()
+    cwd = os.getcwd()
+    for f in os.listdir(cwd):
+        if ".unpacked.gltf" in f or ".unpacked.bin" in f:
+            try:
+                os.remove(os.path.join(cwd, f))
+                print(f" - Removed legacy file: {f}")
+            except: pass
+            
     clear_scene()
     
     print(f"Processing: {args.input}"); sys.stdout.flush()
-    high_poly, surface_props_attr = import_model(args.input)
-    print("Import model returned."); sys.stdout.flush()
+    high_poly, decals, surface_props_attr, target_col_attr = import_model(args.input)
+    print("Import model finished."); sys.stdout.flush()
     
-    # Check for UVs on high poly to handle "Mesh Shredding" fallback
-    has_uvs = any(uv for uv in high_poly.data.uv_layers)
-    if not has_uvs:
-        print("Model has NO UVs. Logic for 'Mesh Shredding' could be applied here if needed.")
-        # Currently we generate UVs during prepare_low_poly, which is standard for baking.
+    # 1. Prepare Low Poly (Decimate the Welded Core)
+    if not high_poly and not decals:
+        raise RuntimeError("No mesh data loaded.")
+        
+    source_obj = high_poly if high_poly else decals[0]
+    print(f"Decimating {source_obj.name} to {args.triangles} triangles..."); sys.stdout.flush()
+    low_poly = prepare_low_poly(source_obj, args.triangles)
+    low_poly.name = "LowPoly_Export"
     
-    print(f"Decimating to {args.triangles} triangles..."); sys.stdout.flush()
-    low_poly = prepare_low_poly(high_poly, args.triangles)
+    # 2. Baking Setup
+    import tempfile 
+    import shutil
+    import zipfile
     
-    # Preserve Custom User Data (e.g. MiniPainterDecal)
-    if 'MiniPainterDecal' in high_poly.name:
-        low_poly.name = high_poly.name # Keep specific name if it identifies it
-    
-    # Setup rendering context
-    bpy.context.scene.render.engine = 'CYCLES'
-    
-    # Output directory handling
     output_dir = os.path.dirname(args.output)
     if not os.path.exists(output_dir):
         os.makedirs(output_dir, exist_ok=True)
         
-    # Use a temporary directory for baking if format embeds textures
-    import tempfile
-    import shutil
+    # Use temp dir for intermediate textures if GLB
+    temp_dir = tempfile.mkdtemp()
+    bake_dir = temp_dir if args.format != 'obj' else output_dir
     
-    if args.format != 'obj':
-        bake_dir_obj = tempfile.TemporaryDirectory()
-        bake_dir = bake_dir_obj.name
-    else:
-        bake_dir = output_dir
-        
-    print("Preparing baking setup..."); sys.stdout.flush()
     setup_baking_material(low_poly, args.resolution, args.resolution)
-    print("Baking material setup complete."); sys.stdout.flush()
+    all_hp = ([high_poly] if high_poly else []) + decals
     
+    # Determine what to bake
     diff_img = None
     norm_img = None
-    rough_img = None
-    metal_img = None
-    ao_img = None
-    orm_img = None
-    sheen_img = None
+    surface_props_img = None
     
-    if args.bake_diffuse:
+    # - Bake Color (Albedo) using Emissive pass
+    if args.bake_diffuse and target_col_attr:
         diff_path = os.path.join(bake_dir, "diffuse.png")
-        print("Baking Base Color (Diffuse) pass...")
+        diff_img = bake_pure_data_pass(all_hp, low_poly, target_col_attr, args.resolution, args.resolution, diff_path)
         
-        # Use EMIT trick for accurate Base Color bake (ignores lighting and metallic attenuation)
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if principled:
-                # Find the color attribute node we created in import_model
-                color_node = next((n for n in mat.node_tree.nodes if n.type == 'ATTRIBUTE' and 'SURFACE_PROPS' not in n.attribute_name.upper()), None)
-                if color_node:
-                    mat.node_tree.links.new(color_node.outputs['Color'], principled.inputs['Emission Color'])
-                
-                if principled.inputs.get('Emission Strength'):
-                    principled.inputs['Emission Strength'].default_value = 1.0
+        # Vertex Color Fallback for compatibility
+        if args.format == 'glb':
+            bake_to_vertex_colors(source_obj, low_poly, "COLOR_0")
+            
+    # - Bake Surface Props (Rough/Metal/Sheen) using Emissive pass
+    if surface_props_attr and (args.bake_roughness or args.bake_metallic):
+        print("Baking Surface Properties...")
+        props_path = os.path.join(bake_dir, "surface_props.png")
+        surface_props_img = bake_pure_data_pass(all_hp, low_poly, surface_props_attr, args.resolution, args.resolution, props_path)
         
-        diff_img = bake_and_save(high_poly, low_poly, 'EMIT', "DiffuseBake", args.resolution, args.resolution, diff_path)
-        
-        # Cleanup
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if principled:
-                link = principled.inputs['Emission Color'].links[0] if principled.inputs['Emission Color'].links else None
-                if link: mat.node_tree.links.remove(link)
-                if principled.inputs.get('Emission Strength'): principled.inputs['Emission Strength'].default_value = 0.0
-        
+    # - Bake Normals (Standard Cycles Normal Bake)
     if args.bake_normal:
         norm_path = os.path.join(bake_dir, "normal.png")
-        norm_img = bake_and_save(high_poly, low_poly, 'NORMAL', "NormalBake", args.resolution, args.resolution, norm_path)
-        
-    if args.bake_roughness:
-        rough_path = os.path.join(bake_dir, "roughness.png")
-        print("Baking Roughness pass...")
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if principled:
-                if surface_props_attr:
-                    sep_node = next((n for n in mat.node_tree.nodes if n.type == 'SEPARATE_COLOR'), None)
-                    if sep_node:
-                        mat.node_tree.links.new(sep_node.outputs['Red'], principled.inputs['Emission Color'])
-                else:
-                    mat.node_tree.links.new(principled.inputs['Roughness'], principled.inputs['Emission Color'])
-                
-                if principled.inputs.get('Emission Strength'):
-                    principled.inputs['Emission Strength'].default_value = 1.0
-                    
-        rough_img = bake_and_save(high_poly, low_poly, 'EMIT', "RoughnessBake", args.resolution, args.resolution, rough_path)
-        
-        # Cleanup
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if principled:
-                link = principled.inputs['Emission Color'].links[0] if principled.inputs['Emission Color'].links else None
-                if link: mat.node_tree.links.remove(link)
-                if principled.inputs.get('Emission Strength'): principled.inputs['Emission Strength'].default_value = 0.0
-        
-    if args.bake_metallic:
-        print("Baking Metallic pass...")
-        metal_path = os.path.join(bake_dir, "metallic.png")
-        # Use EMIT trick for accurate Metallic parameter bake
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if principled:
-                if surface_props_attr:
-                    # Link attribute directly for best accuracy
-                    sep_node = next((n for n in mat.node_tree.nodes if n.type == 'SEPARATE_COLOR'), None)
-                    if sep_node:
-                        mat.node_tree.links.new(sep_node.outputs['Green'], principled.inputs['Emission Color'])
-                else:
-                    # Link the parameter itself
-                    mat.node_tree.links.new(principled.inputs['Metallic'], principled.inputs['Emission Color'])
-                
-                if principled.inputs.get('Emission Strength'):
-                    principled.inputs['Emission Strength'].default_value = 1.0
-                    
-        metal_img = bake_and_save(high_poly, low_poly, 'EMIT', "MetallicBake", args.resolution, args.resolution, metal_path)
-        
-        # Cleanup
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if principled:
-                link = principled.inputs['Emission Color'].links[0] if principled.inputs['Emission Color'].links else None
-                if link: mat.node_tree.links.remove(link)
-                if principled.inputs.get('Emission Strength'): principled.inputs['Emission Strength'].default_value = 0.0
+        norm_img = bake_and_save(source_obj, low_poly, 'NORMAL', "NormalBake", args.resolution, args.resolution, norm_path)
 
-    # Bake Sheen if the attribute was found
-    if surface_props_attr and args.format == 'glb':
-        print("Baking Sheen pass...")
-        sheen_path = os.path.join(bake_dir, "sheen.png")
-        
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            sep_node = next((n for n in mat.node_tree.nodes if n.type == 'SEPARATE_COLOR'), None)
-            if principled and sep_node:
-                mat.node_tree.links.new(sep_node.outputs['Blue'], principled.inputs['Emission Color'])
-                if principled.inputs.get('Emission Strength'):
-                    principled.inputs['Emission Strength'].default_value = 1.0
-        
-        sheen_img = bake_and_save(high_poly, low_poly, 'EMIT', "SheenBake", args.resolution, args.resolution, sheen_path)
-        
-        # Cleanup
-        for mat in high_poly.data.materials:
-            if not mat or not mat.use_nodes: continue
-            principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
-            if principled:
-                link = principled.inputs['Emission Color'].links[0] if principled.inputs['Emission Color'].links else None
-                if link: mat.node_tree.links.remove(link)
-                if principled.inputs.get('Emission Strength'): principled.inputs['Emission Strength'].default_value = 0.0
-
-    # For GLB format, we pack to ORM
-    if args.format == 'glb' and (args.bake_roughness or args.bake_metallic):
-        # We might want AO even if not requested specifically for a better ORM
-        ao_path = os.path.join(bake_dir, "ao.png")
-        ao_img = bake_and_save(high_poly, low_poly, 'AO', "AOBake", args.resolution, args.resolution, ao_path)
-        
-        orm_path = os.path.join(bake_dir, "orm.png")
-        if pack_orm_textures(ao_path if ao_img else None, 
-                             rough_path if rough_img else None, 
-                             metal_path if metal_img else None, 
-                             orm_path):
-            orm_img = bpy.data.images.load(orm_path)
+    # 3. Apply Textures and Setup PBR
+    apply_baked_textures(low_poly, diff_img, norm_img, surface_props_img)
+    
+    # Standardize factors for GLB
+    if args.format == 'glb':
+        mat = low_poly.data.materials[0]
+        principled = next((n for n in mat.node_tree.nodes if n.type == 'BSDF_PRINCIPLED'), None)
+        if principled:
+            principled.inputs['Metallic'].default_value = 1.0
+            principled.inputs['Roughness'].default_value = 1.0
             
-    # Apply textures for formats that pack them (GLB) or for visual correctness
-    apply_baked_textures(low_poly, diff_img, norm_img, orm_img, sheen_img)
-    
-    # Handle Sheen if _SURFACE_PROPS.z is present (Industry standard for Mini Painter Studio)
-    # This is a bit advanced for a simple script, but we can at least ensure 
-    # the attribute is present on the exported mesh since we preserved it.
-    
-    # Hide high poly
-    high_poly.hide_viewport = True
-    high_poly.hide_render = True
-    
-    # If OBJ, we'll export to the same bake_dir to keep things together temporarily
+    # 4. Final Export
     export_path = args.output
     if args.format == 'obj':
         export_path = os.path.join(bake_dir, os.path.basename(args.output))
         
-    # Export
-    print(f"Exporting to {args.format} at: {export_path}"); sys.stdout.flush()
+    print(f"Exporting as {args.format}..."); sys.stdout.flush()
     bpy.ops.object.select_all(action='DESELECT')
     low_poly.select_set(True)
     bpy.context.view_layer.objects.active = low_poly
     
-    try:
-        if args.format == 'obj':
-            bpy.ops.wm.obj_export(filepath=export_path, export_selected_objects=True)
-        elif args.format == 'fbx':
-            bpy.ops.export_scene.fbx(filepath=export_path, use_selection=True)
-        elif args.format == 'glb':
-            # For GLB, ensure textures are included and custom attributes are exported
-            print("Using GLB format with custom attribute export")
-            bpy.ops.export_scene.gltf(
-                filepath=export_path, 
-                export_format='GLB', 
-                use_selection=True,
-                export_image_format='AUTO',
-                export_attributes=True, # Ensure _SURFACE_PROPS is exported
-                export_extras=True
-            )
+    if args.format == 'obj':
+        bpy.ops.wm.obj_export(filepath=export_path, export_selected_objects=True)
+    elif args.format == 'fbx':
+        bpy.ops.export_scene.fbx(filepath=export_path, use_selection=True)
+    elif args.format == 'glb':
+        bpy.ops.export_scene.gltf(
+            filepath=export_path, 
+            export_format='GLB', 
+            use_selection=True,
+            export_attributes=True,
+            export_extras=True,
+            export_tangents=True, # Added to fix normal map shading (MESH_PRIMITIVE_GENERATED_TANGENT_SPACE)
+            export_draco_mesh_compression_enable=False, # Universal compatibility
+            export_image_format='AUTO'
+        )
+        # Compatibility Post-Process
+        post_process_glb_file(export_path)
         
-        # Verify file creation
-        if os.path.exists(export_path):
-            print(f"File successfully created: {export_path}")
-            size_mb = os.path.getsize(export_path) / (1024 * 1024)
-            print(f"Output size: {size_mb:.2f} MB")
-        else:
-            print(f"ERROR: Export operator completed but no file found at: {export_path}")
+    # Zip OBJ if needed
+    if args.format == 'obj':
+        zip_path = args.output if args.output.lower().endswith('.zip') else args.output + ".zip"
+        files_to_zip = [os.path.join(bake_dir, f) for f in os.listdir(bake_dir) if f.lower().endswith(('.obj', '.mtl', '.png'))]
+        with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for f in files_to_zip:
+                zipf.write(f, os.path.basename(f))
+        print(f"ZIP package created: {zip_path}")
+
+    # Cleanup
+    shutil.rmtree(temp_dir)
+    print("Processing complete!"); sys.stdout.flush()
+
+def post_process_glb_file(export_path):
+    """
+    Standardizes GLB precision and PBR factors.
+    Forces COLOR_0 to VEC3 FLOAT to prevent banding and fix app compatibility.
+    """
+    print(f"Post-processing {export_path} for final precision fix...")
+    import struct
+    import json
+    try:
+        with open(export_path, 'rb') as f:
+            header = f.read(12)
+            json_h = f.read(8)
+            j_len, j_type = struct.unpack('<II', json_h)
+            json_data = json.loads(f.read(j_len).decode('utf-8'))
+            bin_h = f.read(8)
+            b_len, b_type = struct.unpack('<II', bin_h)
+            bin_data = bytearray(f.read(b_len))
+
+        modified = False
+        # Fix Metallic/Roughness factors to 1.0 (Texture primacy)
+        for mat in json_data.get('materials', []):
+            pbr = mat.get('pbrMetallicRoughness', {})
+            if pbr.get('metallicFactor') != 1.0 or pbr.get('roughnessFactor') != 1.0:
+                pbr['metallicFactor'] = 1.0
+                pbr['roughnessFactor'] = 1.0
+                mat['pbrMetallicRoughness'] = pbr
+                modified = True
+
+        # Recode Vertex Colors to FLOAT precision (VEC3 FLOAT)
+        new_bin_data = bin_data
+        for mesh in json_data.get('meshes', []):
+            for prim in mesh.get('primitives', []):
+                attrs = prim.get('attributes', {})
+                
+                # Check for COLOR_0 optimization
+                target = 'COLOR_0' if 'COLOR_0' in attrs else None
+                if target:
+                    acc = json_data['accessors'][attrs[target]]
+                    if acc.get('componentType') != 5126 or acc.get('type') != 'VEC3':
+                        bv = json_data['bufferViews'][acc['bufferView']]
+                        start = bv.get('byteOffset', 0) + acc.get('byteOffset', 0)
+                        count = acc['count']
+                        new_floats = []
+                        stride = bv.get('byteStride', 4) if acc.get('type') == 'VEC4' else 12
+                        for i in range(count):
+                            idx = start + i * stride
+                            if acc.get('type') == 'VEC4' and acc.get('componentType') == 5121:
+                                r, g, b, a = bin_data[idx:idx+4]
+                                new_floats.extend([r/255.0, g/255.0, b/255.0])
+                            elif acc.get('type') == 'VEC3' and acc.get('componentType') == 5126:
+                                new_floats.extend(struct.unpack('<3f', bin_data[idx:idx+12]))
+                        
+                        new_offset = (len(new_bin_data) + 3) & ~3
+                        new_bin_data.extend(b'\x00' * (new_offset - len(new_bin_data)))
+                        float_bytes = struct.pack(f'<{len(new_floats)}f', *new_floats)
+                        new_bin_data.extend(float_bytes)
+                        acc.update({'componentType': 5126, 'type': 'VEC3', 'byteOffset': 0, 'normalized': False})
+                        # Explicitly add target: 34962 (ARRAY_BUFFER) to satisfy glTF-Validator
+                        json_data['bufferViews'].append({'buffer': 0, 'byteOffset': new_offset, 'byteLength': len(float_bytes), 'target': 34962})
+                        acc['bufferView'] = len(json_data['bufferViews']) - 1
+                        modified = True
+
+                # --- Final Sanitization for MS 3D Viewer ---
+                # Remove all custom attributes (those starting with an underscore)
+                for key in list(attrs.keys()):
+                    if key.startswith('_'):
+                        print(f" - Stripping custom attribute {key} from final GLB JSON.")
+                        del attrs[key]
+                        modified = True
+
+        if modified:
+            # Padding binary data to 4-byte boundaries (required by glTF spec)
+            while len(new_bin_data) % 4 != 0: new_bin_data.append(0)
+
+            # IMPORTANT: Re-map buffer length to match the final padded binary payload
+            if 'buffers' in json_data and len(json_data['buffers']) > 0:
+                json_data['buffers'][0]['byteLength'] = len(new_bin_data)
+
+            json_bytes = json.dumps(json_data, separators=(',', ':')).encode('utf-8')
+            while len(json_bytes) % 4 != 0: json_bytes += b' '
             
+            # Recalculate total length for GLB header
+            total_len = 12 + 8 + len(json_bytes) + 8 + len(new_bin_data)
+            with open(export_path, 'wb') as f:
+                f.write(struct.pack('<4sII', b'glTF', 2, total_len))
+                f.write(struct.pack('<II', len(json_bytes), 0x4E4F534A))
+                f.write(json_bytes)
+                f.write(struct.pack('<II', len(new_bin_data), 0x004E4942))
+                f.write(new_bin_data)
+            print("Post-processing (VEC3 FLOAT + Sanitization) applied successfully.")
     except Exception as e:
-        print(f"ERROR during export: {str(e)}")
+        print(f"WARNING: Post-processing failed: {e}")
         import traceback
         traceback.print_exc()
-        
-    # Cleanup temp dir and ZIP results
-    print("Finalizing results..."); sys.stdout.flush()
-    
-    if args.format == 'obj':
-        # Collect all files to zip from bake_dir
-        files_to_zip = []
-        for f in os.listdir(bake_dir):
-            if f.endswith(('.obj', '.mtl', '.png')):
-                files_to_zip.append(os.path.join(bake_dir, f))
-                    
-        if files_to_zip:
-            zip_path = args.output
-            if not zip_path.lower().endswith('.zip'):
-                zip_path = os.path.splitext(args.output)[0] + ".zip"
-                
-            print(f"Creating ZIP package: {zip_path}"); sys.stdout.flush()
-            try:
-                with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zipf:
-                    for f_path in files_to_zip:
-                        zipf.write(f_path, os.path.basename(f_path))
-                print(f"ZIP package created successfully: {os.path.basename(zip_path)}"); sys.stdout.flush()
-            except Exception as e:
-                print(f"Error creating ZIP package: {e}"); sys.stdout.flush()
-
-    # Always cleanup the temporary bake directory
-    if 'bake_dir_obj' in locals():
-        print(f"Cleaning up temporary directory: {bake_dir}"); sys.stdout.flush()
-        bake_dir_obj.cleanup()
-        
-    print("Processing complete!"); sys.stdout.flush()
 
 if __name__ == "__main__":
     main()

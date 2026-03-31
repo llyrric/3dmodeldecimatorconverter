@@ -133,7 +133,9 @@ class DecimatorApp(QMainWindow):
         self.bake_normal = QCheckBox("Normal")
         self.bake_normal.setChecked(True)
         self.bake_rough = QCheckBox("Roughness")
+        self.bake_rough.setChecked(True)
         self.bake_metal = QCheckBox("Metallic")
+        self.bake_metal.setChecked(True)
         
         bake_row = QHBoxLayout()
         bake_row.addWidget(self.bake_diffuse)
